@@ -186,10 +186,16 @@ const firebaseConfig={apiKey:"AIzaSyBttGz16TTL7peZUz17XwfZL9ZoZ0Sv69Y",authDomai
 firebase.initializeApp(firebaseConfig);
 const db=firebase.firestore();
 const talRef=tok=>db.collection("talentos").doc(tok);
+const slugRef=slug=>db.collection("slugs").doc(slug);
 
 const S={token:null,perfil:null,ready:false,tTab:"publis",tAno:null,tMes:null,openId:null};
 
-function tokenFromHash(){const h=location.hash.replace(/^#/,"").trim();return /^[a-z0-9]{10,}$/i.test(h)?h:null}
+function tokenFromHash(){
+  const h=location.hash.replace(/^#/,"").trim();
+  if(/^[a-z0-9]{10,}$/i.test(h))return h; // link antigo (token bruto)
+  if(/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/i.test(h))return h; // link novo (slug legível)
+  return null;
+}
 
 function renderEmpty(){
   $("#app").replaceChildren(el("div",{class:"empty"},mark(),
@@ -287,13 +293,23 @@ function openDetail(id){
 }
 
 async function start(){
-  const token=tokenFromHash();
-  if(!token){renderEmpty();return}
-  S.token=token;
+  const h=tokenFromHash();
+  if(!h){renderEmpty();return}
   renderLoading();
   try{
-    const snap=await talRef(token).get();
+    // 1) tenta como token bruto (compatibilidade com links antigos)
+    let snap=await talRef(h).get();
+    let token=h;
+    if(!snap.exists){
+      // 2) tenta resolver como slug legível (links novos)
+      const slugSnap=await slugRef(h).get();
+      if(slugSnap.exists && slugSnap.data().token){
+        token=slugSnap.data().token;
+        snap=await talRef(token).get();
+      }
+    }
     if(!snap.exists){renderEmpty();return}
+    S.token=token;
     S.perfil=snap.data();
     renderTalento();
   }catch(e){
